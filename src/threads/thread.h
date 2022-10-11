@@ -4,6 +4,7 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include "synch.h"
 
 /** States in a thread's life cycle. */
 enum thread_status
@@ -95,6 +96,10 @@ struct thread
 
     int64_t wakeup_tick;                /**< Local tick for alarm clock. */
 
+    int original_priority;              /**< Priority before donation. */
+    struct list hold_on_locks;          /**< Locks this thread holds. */
+    struct lock *wait_on_lock;          /**< Lock that blocks this thread. */
+
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /**< Page directory. */
@@ -142,4 +147,11 @@ int thread_get_load_avg (void);
 
 void thread_blocked_tick_exhaust_wakeup(struct thread *t, void *aux UNUSED);
 void thread_sleep(int64_t ticks);
+
+bool thread_cmp_priority(struct list_elem *a, struct list_elem *b, void *aux);
+
+void thread_donate(struct thread *t);
+void thread_set_priority_by_thread(struct thread *t);
+void thread_hold_lock(struct lock *l);
+void thread_remove_lock(struct lock *l);
 #endif /**< threads/thread.h */
