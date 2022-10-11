@@ -333,8 +333,12 @@ thread_set_priority(int new_priority) {
     enum intr_level old_level = intr_disable();
     int old_priority = thread_current()->priority;
     thread_current()->original_priority = new_priority;
+    // Also need update the priority if no hold_on_locks or get larger priority
     if (list_empty(&thread_current()->hold_on_locks) || new_priority > old_priority) {
         thread_current()->priority = new_priority;
+    }
+    // Priority decrease, need yield
+    if (new_priority < old_priority) {
         thread_yield();
     }
     intr_set_level(old_level);
@@ -452,8 +456,9 @@ init_thread(struct thread *t, const char *name, int priority) {
     t->status = THREAD_BLOCKED;
     strlcpy(t->name, name, sizeof t->name);
     t->stack = (uint8_t *) t + PGSIZE;
-    t->priority = priority;
 
+    // Priority related init
+    t->priority = priority;
     t->original_priority = priority;
     list_init(&t->hold_on_locks);
     t->wait_on_lock = NULL;
@@ -610,8 +615,7 @@ thread_sleep(int64_t ticks) {
  * @return if a>b then true
  */
 bool
-thread_cmp_priority(struct list_elem *a, struct list_elem *b, void *aux UNUSED)
-{
+thread_cmp_priority(struct list_elem *a, struct list_elem *b, void *aux UNUSED) {
     return list_entry(a, struct thread, elem)->priority > list_entry(b, struct thread, elem)->priority;
 }
 
@@ -620,13 +624,11 @@ thread_cmp_priority(struct list_elem *a, struct list_elem *b, void *aux UNUSED)
  * @param t
  */
 void
-thread_donate(struct thread *t)
-{
+thread_donate(struct thread *t) {
     enum intr_level old_level = intr_disable();
     thread_set_priority_by_thread(t);
-
+    // Rearrange the ready_list since the thread-t's priority may become high
     if (t->status == THREAD_READY) {
-        // Rearrange the ready_list
         list_remove(&t->elem);
         list_insert_ordered(&ready_list, &t->elem, (list_less_func *) thread_cmp_priority, NULL);
     }
@@ -638,14 +640,17 @@ thread_donate(struct thread *t)
  * @param t
  */
 void
-thread_set_priority_by_thread(struct thread *t){
+thread_set_priority_by_thread(struct thread *t) {
     enum intr_level old_level = intr_disable();
-    // If hold_on_lock not empty and its priority is higher than current then use this value, otherwise original_priority
+
     if (!list_empty(&t->hold_on_locks)) {
-        list_sort(&t->hold_on_locks, (list_less_func *)lock_cmp_priority, NULL);
+        // Multiple priority Donation, choose the highest waiter priority as the current priority
+        list_sort(&t->hold_on_locks, (list_less_func *) lock_cmp_priority, NULL);
         int new_priority = list_entry(list_front(&t->hold_on_locks), struct lock, elem)->highest_priority_among_waiters;
+        // If original_priority bigger than the newest, still use original one
         t->priority = new_priority > t->original_priority ? new_priority : t->original_priority;
     } else {
+        // No locks hold on, restore the original one
         t->priority = t->original_priority;
     }
     intr_set_level(old_level);
@@ -656,14 +661,12 @@ thread_set_priority_by_thread(struct thread *t){
  * @param l
  */
 void
-thread_hold_lock(struct lock *l)
-{
+thread_hold_lock(struct lock *l) {
     enum intr_level old_level = intr_disable();
+    l->holder = thread_current();
+    thread_current()->wait_on_lock = NULL;
+    thread_current()->priority = l->highest_priority_among_waiters > thread_current()->priority ? l->highest_priority_among_waiters : thread_current()->priority;
     list_insert_ordered(&thread_current()->hold_on_locks, &l->elem, (list_less_func *) lock_cmp_priority, NULL);
-    if (l->highest_priority_among_waiters > thread_current()->priority) {
-        thread_current()->priority = l->highest_priority_among_waiters;
-        thread_yield();
-    }
     intr_set_level(old_level);
 }
 
@@ -672,11 +675,11 @@ thread_hold_lock(struct lock *l)
  * @param l
  */
 void
-thread_remove_lock(struct lock *l)
-{
+thread_remove_lock(struct lock *l) {
     enum intr_level old_level = intr_disable();
+    l->holder = NULL;
     list_remove(&l->elem);
-    // Maintain the priority to the max priority of multiple donors
+    // Update priority, scan all hold_on_locks' waiters (multiple donation) and original priority
     thread_set_priority_by_thread(thread_current());
     intr_set_level(old_level);
 

@@ -64,9 +64,9 @@ sema_down(struct semaphore *sema) {
     ASSERT (!intr_context());
 
     old_level = intr_disable();
+    // Block until have sema resources
     while (sema->value == 0) {
         list_insert_ordered(&sema->waiters, &thread_current()->elem, (list_less_func *) thread_cmp_priority, NULL);
-//        list_push_back(&sema->waiters, &thread_current()->elem);
         thread_block();
     }
     sema->value--;
@@ -102,17 +102,16 @@ sema_try_down(struct semaphore *sema) {
    This function may be called from an interrupt handler. */
 void
 sema_up(struct semaphore *sema) {
-    enum intr_level old_level;
-
     ASSERT (sema != NULL);
 
-    old_level = intr_disable();
+    enum intr_level old_level = intr_disable();
+    sema->value++;
     if (!list_empty(&sema->waiters)) {
         list_sort(&sema->waiters, (list_less_func *)thread_cmp_priority, NULL);
-        thread_unblock(list_entry (list_pop_front(&sema->waiters), struct thread, elem));
+        thread_unblock(list_entry(list_pop_front(&sema->waiters), struct thread, elem));
+        // Since we unblock a thread, we should check if occur a new higher priority thread
+        thread_yield();
     }
-    sema->value++;
-    thread_yield();  // Todo: ??
     intr_set_level(old_level);
 }
 
@@ -186,24 +185,26 @@ lock_acquire(struct lock *lock) {
     ASSERT (!intr_context());
     ASSERT (!lock_held_by_current_thread(lock));
 
-    struct lock *lock_cursor = lock;
+    // Waiting for the lock
+    thread_current()->wait_on_lock = lock;
     if (lock->holder != NULL) {
-        thread_current()->wait_on_lock = lock;
-        // Nested donate priority
+        struct lock *lock_cursor = lock;
+        // Nested priority donation
         while (lock_cursor != NULL &&  thread_current()->priority > lock_cursor->highest_priority_among_waiters) {
             lock_cursor->highest_priority_among_waiters = thread_current()->priority;
             thread_donate(lock_cursor->holder);
             lock_cursor = lock_cursor->holder->wait_on_lock;
         }
+    } else {
+        lock->highest_priority_among_waiters = thread_current()->priority;
     }
 
     sema_down(&lock->semaphore);
+
     // Now thread get the lock
     enum intr_level old_level = intr_disable();
-    thread_current()->wait_on_lock = NULL;
-    lock->highest_priority_among_waiters = thread_current()->priority;
+
     thread_hold_lock(lock);
-    lock->holder = thread_current();
     intr_set_level(old_level);
 }
 
@@ -237,7 +238,6 @@ lock_release(struct lock *lock) {
     ASSERT (lock_held_by_current_thread(lock));
 
     thread_remove_lock(lock);
-    lock->holder = NULL;
     sema_up(&lock->semaphore);
 }
 
