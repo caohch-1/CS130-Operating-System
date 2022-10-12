@@ -107,7 +107,7 @@ sema_up(struct semaphore *sema) {
     enum intr_level old_level = intr_disable();
     sema->value++;
     if (!list_empty(&sema->waiters)) {
-        list_sort(&sema->waiters, (list_less_func *)thread_cmp_priority, NULL);
+        list_sort(&sema->waiters, (list_less_func *) thread_cmp_priority, NULL);
         thread_unblock(list_entry(list_pop_front(&sema->waiters), struct thread, elem));
         // Since we unblock a thread, we should check if occur a new higher priority thread
         thread_yield();
@@ -191,7 +191,7 @@ lock_acquire(struct lock *lock) {
         if (lock->holder != NULL) {
             struct lock *lock_cursor = lock;
             // Nested priority donation
-            while (lock_cursor != NULL &&  thread_current()->priority > lock_cursor->highest_priority_among_waiters) {
+            while (lock_cursor != NULL && thread_current()->priority > lock_cursor->highest_priority_among_waiters) {
                 lock_cursor->highest_priority_among_waiters = thread_current()->priority;
                 thread_donate(lock_cursor->holder);
                 lock_cursor = lock_cursor->holder->wait_on_lock;
@@ -357,5 +357,6 @@ lock_cmp_priority(struct list_elem *a, struct list_elem *b, void *aux UNUSED) {
 bool cond_cmp_priority(struct list_elem *a, struct list_elem *b, void *aux UNUSED) {
     struct semaphore_elem *sema_a = list_entry(a, struct semaphore_elem, elem);
     struct semaphore_elem *sema_b = list_entry(b, struct semaphore_elem, elem);
-    return list_entry(list_front(&sema_a->semaphore.waiters), struct thread, elem)->priority > list_entry(list_front(&sema_b->semaphore.waiters), struct thread, elem)->priority;
+    return list_entry(list_front(&sema_a->semaphore.waiters), struct thread, elem)->priority >
+           list_entry(list_front(&sema_b->semaphore.waiters), struct thread, elem)->priority;
 }
