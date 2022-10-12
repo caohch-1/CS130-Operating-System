@@ -186,25 +186,27 @@ lock_acquire(struct lock *lock) {
     ASSERT (!lock_held_by_current_thread(lock));
 
     // Waiting for the lock
-    thread_current()->wait_on_lock = lock;
-    if (lock->holder != NULL) {
-        struct lock *lock_cursor = lock;
-        // Nested priority donation
-        while (lock_cursor != NULL &&  thread_current()->priority > lock_cursor->highest_priority_among_waiters) {
-            lock_cursor->highest_priority_among_waiters = thread_current()->priority;
-            thread_donate(lock_cursor->holder);
-            lock_cursor = lock_cursor->holder->wait_on_lock;
+    if (!thread_mlfqs) {
+        thread_current()->wait_on_lock = lock;
+        if (lock->holder != NULL) {
+            struct lock *lock_cursor = lock;
+            // Nested priority donation
+            while (lock_cursor != NULL &&  thread_current()->priority > lock_cursor->highest_priority_among_waiters) {
+                lock_cursor->highest_priority_among_waiters = thread_current()->priority;
+                thread_donate(lock_cursor->holder);
+                lock_cursor = lock_cursor->holder->wait_on_lock;
+            }
+        } else {
+            lock->highest_priority_among_waiters = thread_current()->priority;
         }
-    } else {
-        lock->highest_priority_among_waiters = thread_current()->priority;
     }
 
     sema_down(&lock->semaphore);
 
     // Now thread get the lock
     enum intr_level old_level = intr_disable();
-
-    thread_hold_lock(lock);
+    if (!thread_mlfqs) thread_hold_lock(lock);
+    else lock->holder = thread_current();
     intr_set_level(old_level);
 }
 
@@ -237,7 +239,8 @@ lock_release(struct lock *lock) {
     ASSERT (lock != NULL);
     ASSERT (lock_held_by_current_thread(lock));
 
-    thread_remove_lock(lock);
+    if (!thread_mlfqs) thread_remove_lock(lock);
+    else lock->holder = NULL;
     sema_up(&lock->semaphore);
 }
 

@@ -11,6 +11,7 @@
 #include "threads/switch.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
+#include "fixed_point_arithmetic.h"
 
 #ifdef USERPROG
 #include "userprog/process.h"
@@ -20,6 +21,10 @@
    Used to detect stack overflow.  See the big comment at the top
    of thread.h for details. */
 #define THREAD_MAGIC 0xcd6abf4b
+
+/** Used in MLQFS for calculate recent_cpu and decay. */
+fixed_point load_avg;
+fixed_point decay;
 
 /** List of processes in THREAD_READY state, that is, processes
    that are ready to run but not actually running. */
@@ -115,6 +120,8 @@ thread_start(void) {
     struct semaphore idle_started;
     sema_init(&idle_started, 0);
     thread_create("idle", PRI_MIN, idle, &idle_started);
+    // Init mlfqs related var load_avg
+    load_avg = FP(0);
 
     /* Start preemptive thread scheduling. */
     intr_enable();
@@ -330,6 +337,7 @@ thread_foreach(thread_action_func *func, void *aux) {
 /** Sets the current thread's priority to NEW_PRIORITY. */
 void
 thread_set_priority(int new_priority) {
+    if (thread_mlfqs) return;
     enum intr_level old_level = intr_disable();
     int old_priority = thread_current()->priority;
     thread_current()->original_priority = new_priority;
@@ -353,29 +361,31 @@ thread_get_priority(void) {
 /** Sets the current thread's nice value to NICE. */
 void
 thread_set_nice(int nice UNUSED) {
-    /* Not yet implemented. */
+    thread_current()->nice = nice;
+    thread_update_priority(thread_current(), NULL);
+    thread_yield();
 }
 
 /** Returns the current thread's nice value. */
 int
 thread_get_nice(void) {
-    /* Not yet implemented. */
-    return 0;
+    return thread_current()->nice;
 }
 
 /** Returns 100 times the system load average. */
 int
 thread_get_load_avg(void) {
     /* Not yet implemented. */
-    return 0;
+    return FP_ROUND_NEAREST(FP_MUL_INT(load_avg, 100));
 }
 
 /** Returns 100 times the current thread's recent_cpu value. */
 int
 thread_get_recent_cpu(void) {
     /* Not yet implemented. */
-    return 0;
+    return FP_ROUND_NEAREST(FP_MUL_INT(thread_current()->recent_cpu, 100));
 }
+
 
 /** Idle thread.  Executes when no other thread is ready to run.
 
@@ -462,6 +472,10 @@ init_thread(struct thread *t, const char *name, int priority) {
     t->original_priority = priority;
     list_init(&t->hold_on_locks);
     t->wait_on_lock = NULL;
+
+    // Mlfqs related init
+    t->nice = 0;
+    t->recent_cpu = FP(0);
 
     t->magic = THREAD_MAGIC;
     t->wakeup_tick = 0;
@@ -665,7 +679,9 @@ thread_hold_lock(struct lock *l) {
     enum intr_level old_level = intr_disable();
     l->holder = thread_current();
     thread_current()->wait_on_lock = NULL;
-    thread_current()->priority = l->highest_priority_among_waiters > thread_current()->priority ? l->highest_priority_among_waiters : thread_current()->priority;
+    thread_current()->priority =
+            l->highest_priority_among_waiters > thread_current()->priority ? l->highest_priority_among_waiters
+                                                                           : thread_current()->priority;
     list_insert_ordered(&thread_current()->hold_on_locks, &l->elem, (list_less_func *) lock_cmp_priority, NULL);
     intr_set_level(old_level);
 }
@@ -683,4 +699,48 @@ thread_remove_lock(struct lock *l) {
     thread_set_priority_by_thread(thread_current());
     intr_set_level(old_level);
 
+}
+
+/**
+ * Used in mlfqs for increasing the running thread's recent_cpu by one in every clock tick
+ */
+void
+thread_increase_recent_cpu(void) {
+    if (thread_current() != idle_thread) {
+        thread_current()->recent_cpu = FP_ADD_INT(thread_current()->recent_cpu, 1);
+    }
+}
+
+/**
+ * Used in mlfqs for updating load_avg & decay before calculating every thread's recent_cpu per second
+ */
+void
+thread_update_load_avg_and_decay(void) {
+    size_t num_ready_threads = thread_current() == idle_thread ? list_size(&ready_list) : list_size(&ready_list) + 1;
+    load_avg = FP_ADD(FP_MUL(FP_DIV_INT(FP(59), 60), load_avg), FP_MUL_INT(FP_DIV_INT(FP(1), 60), num_ready_threads));
+    decay = FP_DIV(FP_MUL_INT(load_avg, 2), FP_ADD_INT(FP_MUL_INT(load_avg, 2), 1));
+}
+
+/**
+ * Used in mlfqs for updating thread-t's recent_cpu per second
+ */
+void
+thread_update_recent_cpu(struct thread *t, void *aux UNUSED) {
+    if (t != idle_thread) {
+        t->recent_cpu = FP_ADD_INT(FP_MUL(decay, t->recent_cpu), t->nice);
+        thread_update_priority(t, NULL);
+    }
+}
+
+/**
+ * Used in mlfqs for updating thread-t's priority in every fourth tick
+ * @param t
+ */
+void
+thread_update_priority(struct thread *t, void *aux UNUSED) {
+    if (t != idle_thread) {
+        t->priority = FP_ROUND_FLOOR(FP_SUB_INT(FP_SUB(FP(PRI_MAX), FP_DIV_INT(t->recent_cpu, 4)), t->nice * 2));
+        if (t->priority > PRI_MAX) t->priority = PRI_MAX;
+        else if (t->priority < PRI_MIN) t->priority = PRI_MIN;
+    }
 }

@@ -163,8 +163,18 @@ static void
 timer_interrupt(struct intr_frame *args UNUSED) {
     ticks++;
     thread_tick();
-    // Check blocked threads if they need to be wake up
     enum intr_level old_level = intr_disable();
+    if (thread_mlfqs) {
+        thread_increase_recent_cpu();
+        if (ticks % 4 == 0) {
+            thread_update_priority(thread_current(), NULL);
+            }
+        if (ticks % TIMER_FREQ == 0) {
+            thread_update_load_avg_and_decay();
+            thread_foreach(thread_update_recent_cpu, NULL);
+        }
+
+    }
     thread_foreach(thread_blocked_tick_exhaust_wakeup, NULL);
     intr_set_level(old_level);
 }
@@ -232,3 +242,4 @@ real_time_delay(int64_t num, int32_t denom) {
     ASSERT (denom % 1000 == 0);
     busy_wait(loops_per_tick * num / 1000 * TIMER_FREQ / (denom / 1000));
 }
+
