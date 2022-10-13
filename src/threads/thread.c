@@ -719,6 +719,7 @@ thread_update_load_avg_and_decay(void) {
     size_t num_ready_threads = thread_current() == idle_thread ? list_size(&ready_list) : list_size(&ready_list) + 1;
     load_avg = FP_ADD(FP_MUL(FP_DIV_INT(FP(59), 60), load_avg), FP_MUL_INT(FP_DIV_INT(FP(1), 60), num_ready_threads));
     decay = FP_DIV(FP_MUL_INT(load_avg, 2), FP_ADD_INT(FP_MUL_INT(load_avg, 2), 1));
+
 }
 
 /**
@@ -728,7 +729,6 @@ void
 thread_update_recent_cpu(struct thread *t, void *aux UNUSED) {
     if (t != idle_thread) {
         t->recent_cpu = FP_ADD_INT(FP_MUL(decay, t->recent_cpu), t->nice);
-        thread_update_priority(t, NULL);
     }
 }
 
@@ -739,7 +739,7 @@ thread_update_recent_cpu(struct thread *t, void *aux UNUSED) {
 void
 thread_update_priority(struct thread *t, void *aux UNUSED) {
     if (t != idle_thread) {
-        t->priority = FP_ROUND_FLOOR(FP_SUB_INT(FP_SUB(FP(PRI_MAX), FP_DIV_INT(t->recent_cpu, 4)), t->nice * 2));
+        t->priority = FP_ROUND_FLOOR(FP_SUB_INT(FP_SUB(FP(PRI_MAX), FP_DIV_INT(t->recent_cpu, 4)), (t->nice * 2)));
         if (t->priority > PRI_MAX) t->priority = PRI_MAX;
         else if (t->priority < PRI_MIN) t->priority = PRI_MIN;
     }

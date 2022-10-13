@@ -1,7 +1,3 @@
-//
-// Created by Hongchen Cao on 2022/10/12.
-//
-
 #ifndef PINTOS_FIXED_POINT_ARITHMETIC_H
 #define PINTOS_FIXED_POINT_ARITHMETIC_H
 

@@ -184,7 +184,7 @@ lock_acquire(struct lock *lock) {
     ASSERT (lock != NULL);
     ASSERT (!intr_context());
     ASSERT (!lock_held_by_current_thread(lock));
-
+    enum intr_level old_level = intr_disable();
     // Waiting for the lock
     if (!thread_mlfqs) {
         thread_current()->wait_on_lock = lock;
@@ -204,7 +204,6 @@ lock_acquire(struct lock *lock) {
     sema_down(&lock->semaphore);
 
     // Now thread get the lock
-    enum intr_level old_level = intr_disable();
     if (!thread_mlfqs) thread_hold_lock(lock);
     else lock->holder = thread_current();
     intr_set_level(old_level);

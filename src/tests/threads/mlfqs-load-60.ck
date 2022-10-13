@@ -30,9 +30,8 @@ for (my ($t) = 0; $t < 180; $t++) {
 }
 
 # Mac docker may fail this test, but my code works on ubuntu20.04 environment
-# So I change this limit 3.5->13.5
-mlfqs_compare ("time", "%.2f", \@actual, \@expected, 13.5, [2, 178, 2],
+mlfqs_compare ("time", "%.2f", \@actual, \@expected, 3.5, [2, 178, 2],
 	       "Some load average values were missing or "
 	       . "differed from those expected "
-	       . "by more than 13.5.");
+	       . "by more than 3.5.");
 pass;

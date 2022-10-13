@@ -167,7 +167,7 @@ timer_interrupt(struct intr_frame *args UNUSED) {
     if (thread_mlfqs) {
         thread_increase_recent_cpu();
         if (ticks % 4 == 0) {
-            thread_update_priority(thread_current(), NULL);
+            thread_foreach(thread_update_priority, NULL);
         }
         if (ticks % TIMER_FREQ == 0) {
             thread_update_load_avg_and_decay();
