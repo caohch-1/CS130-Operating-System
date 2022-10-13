@@ -338,6 +338,7 @@ thread_foreach(thread_action_func *func, void *aux) {
 void
 thread_set_priority(int new_priority) {
     if (thread_mlfqs) return;
+
     enum intr_level old_level = intr_disable();
     int old_priority = thread_current()->priority;
     thread_current()->original_priority = new_priority;
@@ -643,8 +644,7 @@ thread_donate(struct thread *t) {
     thread_set_priority_by_thread(t);
     // Rearrange the ready_list since the thread-t's priority may become high
     if (t->status == THREAD_READY) {
-        list_remove(&t->elem);
-        list_insert_ordered(&ready_list, &t->elem, (list_less_func *) thread_cmp_priority, NULL);
+        list_sort(&ready_list, (list_less_func *) thread_cmp_priority, NULL);
     }
     intr_set_level(old_level);
 }
