@@ -69,6 +69,7 @@ sema_down(struct semaphore *sema) {
         list_insert_ordered(&sema->waiters, &thread_current()->elem, (list_less_func *) thread_cmp_priority, NULL);
         thread_block();
     }
+    // Get resource
     sema->value--;
     intr_set_level(old_level);
 }
